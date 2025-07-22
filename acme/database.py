@@ -1,16 +1,61 @@
 import psycopg2
-from psycopg2 import sql, OperationalError
+from psycopg2 import sql
 import pandas as pd
 from sqlalchemy import create_engine
 
-from logic import determining_encoding
 
-from ftfy import fix_text, fix_encoding_and_explain
-import urllib.parse
+def handle_missing_values(df, strategy='auto'):
+    """
+    Заполняет пропущенные значения
+
+    Параметры:
+        strategy: 'auto', 'mean', 'median', 'mode', 'drop', или конкретное значение
+    """
+    df_filled = df.copy()
+    print('df.columns', df.columns)
+    for col in df.columns:
+        print('col', col)
+        # Пропускаем столбцы без пропусков
+        if not df[col].isna().any():
+            print(f'Столбец "{col}" НЕ содержит пустые значения')
+            continue
+
+        # Автоматический выбор стратегии
+        if strategy == 'auto':
+            if pd.api.types.is_numeric_dtype(df[col]):
+                fill_value = df[col].median()
+            else:
+                fill_value = df[col].mode()[0]
+        elif strategy == 'mean' and pd.api.types.is_numeric_dtype(df[col]):
+            print('Выбрана стратегия mean')
+            fill_value = df[col].mean()
+        elif strategy == 'median' and pd.api.types.is_numeric_dtype(df[col]):
+            print('Выбрана стратегия median')
+            fill_value = df[col].median()
+        elif strategy == 'mode':
+            print('Выбрана стратегия mode')
+            fill_value = df[col].mode()[0]
+        elif strategy == 'drop':
+            print('Выбрана стратегия drop')
+            print('Rows after:', len(df_filled))
+            df_filled = df.dropna(subset=[col])
+            print('Rows before:', len(df_filled))
+            print(f"Удалены строки с пропусками в столбце {col}")
+            continue
+        else:
+            print('Выбрана стратегия ХЗ')
+            fill_value = strategy  # пользовательское значение
+
+        # Заполняем пропуски
+        df_filled[col] = df[col].fillna(fill_value)
+        print(f"Заполнено {df[col].isnull().sum()} пропусков в {col} значением {fill_value}")
+
+    return df_filled
 
 
 class PostgresDB:
-    DEFAULT_NAME_DB = 'default_database_name'
+    DEFAULT_NAME_DB = 'esoft_db'
+    DEFAULT_NAME_TABLE = 'default_table'
     def __init__(self, config):
         self.config_app = config
         # Подключение к серверу PostgreSQL (не к конкретной БД)
@@ -24,7 +69,6 @@ class PostgresDB:
         )
         # Для создания БД нужен autocommit
         self.session.autocommit = True
-
         self.cursor = self.session.cursor()
 
 
@@ -49,51 +93,64 @@ class PostgresDB:
             print(f'БД "{self.DEFAULT_NAME_DB}" не найдена.')
             return False
 
-    def delete_db(self):
+    def delete_table(self):
         try:
-            if self.db_is_exists():
-                self.cursor.execute(f'DROP DATABASE {self.DEFAULT_NAME_DB};')
-                print(f'База данных "{self.DEFAULT_NAME_DB}" успешно удалена.')
-            else:
-                print(f'База данных "{self.DEFAULT_NAME_DB}" не существует.')
+            self.cursor.execute(f"DROP TABLE IF EXISTS {self.DEFAULT_NAME_TABLE}")
+            self.session.commit()
+            print(f'Выполнена очистка данных.')
 
-        except OperationalError as e:
-            print(f'Ошибка при удалении БД: {e}')
+        except Exception as e:
+            print(f'Ошибка при очистке данных: {e}')
 
-    def import_csv_to_postgres(self, csv_file, table_name='default_table'):
-        df = pd.read_csv(csv_file)
+    def import_file_to_postgres(self, file, file_type):
+        df = None
+        if file_type == 'csv':
+            df = pd.read_csv(file)
+        elif file_type in ['excel', 'xls', 'xlsx']:
+            df = pd.read_excel(file)
         print(df)
-        # Создание подключения
+
+        # Создание подключения для SQLAlchemy
         engine = create_engine(
             url=f"postgresql+psycopg2://{self.config_app['DB_USER']}:{self.config_app['DB_PASSWORD']}@"\
             f"{self.config_app['DB_HOST']}:{self.config_app['DB_PORT']}/{self.config_app['DB_NAME']}"
-            # client_encoding='ascii'
         )
         try:
-                # Загрузка данных в PostgreSQL
+            # Загрузка данных в PostgreSQL
             df.to_sql(
-                name=table_name,
+                name=self.DEFAULT_NAME_TABLE,
                 con=engine,
                 if_exists='replace',  # или 'append' для добавления данных
                 index=False,
                 method='multi'
             )
 
-            print(f'Данные за файла успешно импортированы в таблицу "{table_name}"!')
+            print(f'Данные за файла успешно импортированы в таблицу "{self.DEFAULT_NAME_TABLE}"!')
 
         except Exception as e:
             print(f"Ошибка при записи в БД: {e}")
 
-    def import_excel_to_postgres(self):
-        pass
+    def get_data(self):
+        engine = create_engine(f"postgresql://{self.config_app['DB_USER']}:{self.config_app['DB_PASSWORD']}@"
+                               f"{self.config_app['DB_HOST']}:{self.config_app['DB_PORT']}/{self.config_app['DB_NAME']}")
+        try:
+            query = f'SELECT * FROM {self.DEFAULT_NAME_TABLE}'
+            df = pd.read_sql(query, engine)
+            return df
+        except Exception as e:
+            print(f"Ошибка при получении данных из базы: {e}")
+            return None
+
+
 
     def __del__(self):
-            try:
-                self.cursor.close()
-            except AttributeError as e:
-                print('Ошибка:', e)
+        try:
+            self.cursor.close()
+        except AttributeError as e:
+            print('Ошибка:', e)
 
-            try:
-                self.session.close()
-            except AttributeError as e:
-                print('Ошибка:', e)
+        try:
+            self.session.close()
+        except AttributeError as e:
+            print('Ошибка:', e)
+        print('Подключение к базе данных закрыто!')

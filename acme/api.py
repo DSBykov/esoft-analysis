@@ -1,8 +1,7 @@
-from flask import Flask, flash, redirect
+from flask import Flask
 from flask import request
 
-from logic import allowed_file
-from storage import save_file
+from logic import allowed_file, save_file_to_database, get_statistics
 from database import PostgresDB
 
 class ApiException(Exception):
@@ -19,42 +18,44 @@ app.config['DB_PORT'] = 5432
 app.config['DB_ENCODING'] = 'UTF8'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 
-dbase = PostgresDB(app.config)
+
 
 API_ROOT_PATH = '/api/v1/'
 API_DATA_PATH = API_ROOT_PATH + 'data/'
-
-# UPLOAD_FOLDER = 'uploads'
-# app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # POST /upload для загрузки файла
 @app.route(API_ROOT_PATH + 'upload' + '/', methods=['POST'])
 def api_upload_file():
     if 'file' not in request.files:
-        raise ApiException('No file part')
-        # return 'No file part', 500
+        return 'No file part', 500
 
     file = request.files['file']
-    if file.filename == '':
-        # return 'No selected file', 501
-        raise ApiException('No selected file')
-        # return redirect(request.url)
+    print('pyte upload file:', type(file))
 
-    if file and allowed_file(file.filename, app.config):
-        print(f'Загружен файл: "{file.filename}"')
-        file_path = save_file(file, app.config)
-        dbase.import_csv_to_postgres(csv_file=file_path)
-        return f'The file has been saved to {file_path}', 201
+    if file.filename == '':
+        return 'No selected file', 501
+
+
+    elif not allowed_file(file.filename, app.config):
+        return 'Unsupported Media Type', 415
+
+    elif file and allowed_file(file.filename, app.config):
+        save_file_to_database(file, app.config)
+        return f'The file has been saved to database', 201
 
 # GET /data/stats для получения аналитики по загруженным данным
 @app.route(API_DATA_PATH + 'stats' + '/')
 def api_status():
-    return 'Return status', 201
+    data = get_statistics(app.config)
+    print('DATA:', data)
+    return data, 201
 
 
 # GET /data/clean для очистки данных
 @app.route(API_DATA_PATH + 'clean' + '/')
 def api_clean():
+    dbase = PostgresDB(app.config)
+    dbase.delete_table()
     return 'Clean data', 201
 
 # (Продвинутый уровень) GET /data/plot для получения графика
