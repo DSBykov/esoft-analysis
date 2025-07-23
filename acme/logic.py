@@ -51,7 +51,8 @@ def get_statistics(config):
 
     # Нормализация данных выполняется перед их анализом,
     # т.к. данные в базе могут быть перезаписаны
-    normalize_data = handle_missing_values(df)
+    df_no_duplicates = df.drop_duplicates()
+    normalize_data = handle_missing_values(df_no_duplicates)
 
     median_values = normalize_data.median(numeric_only=True)
     print("Медианные значения:\n", median_values)
