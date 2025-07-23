@@ -23,7 +23,7 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 API_ROOT_PATH = '/api/v1/'
 API_DATA_PATH = API_ROOT_PATH + 'data/'
 
-# POST /upload для загрузки файла
+# POST /api/v1/upload для загрузки файла
 @app.route(API_ROOT_PATH + 'upload' + '/', methods=['POST'])
 def api_upload_file():
     if 'file' not in request.files:
@@ -43,7 +43,7 @@ def api_upload_file():
         save_file_to_database(file, app.config)
         return f'The file has been saved to database', 201
 
-# GET /data/stats для получения аналитики по загруженным данным
+# GET /api/v1/data/stats для получения аналитики по загруженным данным
 @app.route(API_DATA_PATH + 'stats' + '/')
 def api_status():
     data = get_statistics(app.config)
@@ -51,7 +51,7 @@ def api_status():
     return data, 201
 
 
-# GET /data/clean для очистки данных
+# GET /api/v1/data/clean для очистки данных
 @app.route(API_DATA_PATH + 'clean' + '/')
 def api_clean():
     dbase = PostgresDB(app.config)
