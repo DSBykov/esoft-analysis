@@ -13,7 +13,8 @@ def allowed_file(filename, config):
            filename.rsplit('.', 1)[1].lower() in config['ALLOWED_EXTENSIONS']:
         return True
     else:
-        raise LogicException(f'File "{filename}" extensions is not allowed.')
+        print(f'File "{filename}" extensions is not allowed.')
+        return False
 
 def get_format_file(filename):
     print('get_format_file', filename)
