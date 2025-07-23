@@ -3,8 +3,6 @@ import json
 import chardet
 from storage import save_file, remove_tmp_file
 from database import PostgresDB, handle_missing_values
-import pandas as pd
-
 
 
 class LogicException(Exception):
@@ -15,7 +13,8 @@ def allowed_file(filename, config):
            filename.rsplit('.', 1)[1].lower() in config['ALLOWED_EXTENSIONS']:
         return True
     else:
-        raise LogicException(f'File "{filename}" extensions is not allowed.')
+        print(f'File "{filename}" extensions is not allowed.')
+        return False
 
 def get_format_file(filename):
     print('get_format_file', filename)
@@ -32,7 +31,7 @@ def save_file_to_database(file, config):
     dbase.import_file_to_postgres(file_path, file_type)
     # Удаляем файл из временного хранилища после импорта в БД
     remove_tmp_file(file_path)
-    print(f'Файл {file.filename} удален из временного хранилища')
+
 
 def determining_encoding(file_path):
     with open(file_path, 'rb') as f:
@@ -44,7 +43,11 @@ def determining_encoding(file_path):
 
 def get_statistics(config):
     dbase = PostgresDB(config)
-    df = dbase.get_data()
+    df = None
+    if dbase.table_is_exists():
+        df = dbase.get_data()
+    else:
+        raise LogicException('Table in database is not exists.')
 
     # Нормализация данных выполняется перед их анализом,
     # т.к. данные в базе могут быть перезаписаны

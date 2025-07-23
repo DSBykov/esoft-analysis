@@ -1,7 +1,9 @@
 import psycopg2
 from psycopg2 import sql
 import pandas as pd
-from sqlalchemy import create_engine
+import traceback
+from sqlalchemy import create_engine, exc
+
 
 
 def handle_missing_values(df, strategy='auto'):
@@ -11,6 +13,7 @@ def handle_missing_values(df, strategy='auto'):
     Параметры:
         strategy: 'auto', 'mean', 'median', 'mode', 'drop', или конкретное значение
     """
+
     df_filled = df.copy()
     print('df.columns', df.columns)
     for col in df.columns:
@@ -52,6 +55,8 @@ def handle_missing_values(df, strategy='auto'):
 
     return df_filled
 
+class DataBaseException(Exception):
+    pass
 
 class PostgresDB:
     DEFAULT_NAME_DB = 'esoft_db'
@@ -93,14 +98,23 @@ class PostgresDB:
             print(f'БД "{self.DEFAULT_NAME_DB}" не найдена.')
             return False
 
+    def table_is_exists(self):
+        """Проверяет, существует ли таблица в PostgreSQL."""
+        query = sql.SQL(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s)"
+        )
+        self.cursor.execute(query, (self.DEFAULT_NAME_TABLE,))
+        return self.cursor.fetchone()[0]
+
     def delete_table(self):
         try:
             self.cursor.execute(f"DROP TABLE IF EXISTS {self.DEFAULT_NAME_TABLE}")
             self.session.commit()
             print(f'Выполнена очистка данных.')
 
-        except Exception as e:
-            print(f'Ошибка при очистке данных: {e}')
+        except AttributeError as e:
+            print(f'Ошибка при очистке таблицы: {e}')
+            self.session.rollback()
 
     def import_file_to_postgres(self, file, file_type):
         df = None
@@ -127,8 +141,24 @@ class PostgresDB:
 
             print(f'Данные за файла успешно импортированы в таблицу "{self.DEFAULT_NAME_TABLE}"!')
 
+        except ValueError as e:
+            print(f"Ошибка валидации данных: {e}")
+
+        except exc.ProgrammingError as e:
+            print(f"Ошибка SQL-запроса: {e}")
+
+        except exc.OperationalError as e:
+            print(f"Ошибка соединения с БД: {e}")
+
+        except exc.DataError as e:
+            print(f"Ошибка типа данных: {e}")
+
+        except exc.IntegrityError as e:
+            print(f"Ошибка целостности данных: {e}")
+
         except Exception as e:
-            print(f"Ошибка при записи в БД: {e}")
+            traceback.print_exc()
+            raise DataBaseException(f"Неожиданная ошибка при записи в БД: {e}") # Повторно поднимаем исключение после логирования
 
     def get_data(self):
         engine = create_engine(f"postgresql://{self.config_app['DB_USER']}:{self.config_app['DB_PASSWORD']}@"
@@ -137,11 +167,8 @@ class PostgresDB:
             query = f'SELECT * FROM {self.DEFAULT_NAME_TABLE}'
             df = pd.read_sql(query, engine)
             return df
-        except Exception as e:
-            print(f"Ошибка при получении данных из базы: {e}")
-            return None
-
-
+        except pd.errors.DatabaseError as e:
+            raise DataBaseException(f"Ошибка работы с базой данных через pandas: {e}")
 
     def __del__(self):
         try:
